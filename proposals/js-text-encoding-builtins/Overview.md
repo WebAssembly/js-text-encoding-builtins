@@ -168,7 +168,7 @@ func encodeStringIntoUTF8Memory(
   string: externref,
   start: i64,
   end: i64
-) -> (i64, i64)
+) -> (i32, i64)
 {
   start >>>= 0;
   end >>>= 0;
@@ -217,3 +217,7 @@ There is an [ongoing discussion](https://github.com/WebAssembly/esm-integration/
 ### Why do the provided functions take `i64` instead of `i32`?
 
 This enables support for the Memory64 proposal.
+
+### What about JS strings larger than 2^32 bytes?
+
+Given that currently no engine supports strings larger than 2^30 and there are currently no plans to do so, we concluded to postpone specifically addressing this. See [#3](https://github.com/WebAssembly/js-text-encoding-builtins/issues/3).
