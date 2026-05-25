@@ -213,3 +213,7 @@ The JS String Builtins proposal already exposes [`"wasm:js-string" "substring"`]
 ### `"wasm:text-encoding"` vs `"wasm:js/text-encoding"`.
 
 There is an [ongoing discussion](https://github.com/WebAssembly/esm-integration/issues/118) to change the mapping for JS builtins. Either convention works for us in this proposal.
+
+### Why do the provided functions take `i64` instead of `i32`?
+
+This enables support for the Memory64 proposal.
