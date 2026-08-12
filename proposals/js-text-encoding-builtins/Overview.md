@@ -2,7 +2,7 @@
 
 ## Overview
 
-Building on top of the [JS String Builtins proposal](https://github.com/WebAssembly/js-string-builtins) this proposal adds builtins for encoding and decoding UTF-8 strings in linear memory to and from JavaScript strings.
+Building on top of the [JS String Builtins proposal](https://github.com/WebAssembly/js-string-builtins) this proposal adds builtins for encoding and decoding UTF-8 strings in linear memory to and from JavaScript strings, as well as builtins for copying JavaScript strings to and from linear memory as well-formed UTF-16.
 
 ## Goals
 
@@ -192,11 +192,123 @@ func encodeStringIntoUTF8Memory(
 }
 ```
 
+### "wasm:text-encoding" "decodeStringFromUTF16Memory"
+
+```js
+/// Decode the specified `WebAssembly.Memory` range using UTF-16LE into a JS
+/// string. Following the WHATWG `utf-16le` decoder, unpaired surrogates are
+/// replaced with the replacement character (U+FFFD), so the result is always
+/// well-formed.
+///
+/// This function traps if `memory` is not a `WebAssembly.Memory`.
+///
+/// The range is given by [start, end) in bytes. This function traps if the
+/// range is outside the bounds of the memory, or if `start` or `end` are not
+/// 2-byte aligned.
+func decodeStringFromUTF16Memory(
+  memory: externref,
+  start: i64,
+  end: i64
+) -> (ref extern)
+{
+  start >>>= 0;
+  end >>>= 0;
+
+  if (!(memory instanceof WebAssembly.Memory))
+    trap();
+
+  if (start > end ||
+      end > memory.buffer.length)
+    trap();
+
+  if (start & 1 || end & 1)
+    trap();
+
+  let decoder = new TextDecoder("utf-16le", {
+    fatal: false,
+    ignoreBOM: false,
+  });
+  let bytesLength = end - start;
+  let view = new Uint8Array(memory, start, bytesLength);
+
+  return decoder.decode(view);
+}
+```
+
+### "wasm:text-encoding" "encodeStringIntoUTF16Memory"
+
+```js
+/// Encode a JS string into `WebAssembly.Memory` using the UTF-16LE encoding.
+/// The string is converted to well-formed UTF-16 with the same semantics as
+/// WebIDL `USVString` conversion and `String.prototype.toWellFormed()`:
+/// unpaired surrogates are replaced with the replacement character (U+FFFD).
+/// It therefore doesn't support lossless round-tripping of arbitrary JS
+/// strings.
+///
+/// Returns the number of bytes written, which is equal to twice the length
+/// of the string, since the replacement is size-preserving.
+///
+/// This function traps if `memory` or `string` are not `WebAssembly.Memory` and `string` respectively.
+///
+/// The destination range is given by [start, end) in bytes. This function
+/// traps if the range is outside the bounds of the memory, if `start` or
+/// `end` are not 2-byte aligned, or if the string doesn't fit into the range.
+func encodeStringIntoUTF16Memory(
+  memory: externref,
+  string: externref,
+  start: i64,
+  end: i64
+) -> i64
+{
+  start >>>= 0;
+  end >>>= 0;
+
+  if (!(memory instanceof WebAssembly.Memory))
+    trap();
+
+  if (typeof string !== "string")
+    trap();
+
+  if (start > end ||
+      end > memory.buffer.length)
+    trap();
+
+  if (start & 1 || end & 1)
+    trap();
+
+  if (string.length * 2 > end - start)
+    trap();
+
+  let view = new DataView(memory.buffer);
+  for (let i = 0; i < string.length; i++) {
+    let codeUnit = string.charCodeAt(i);
+    if (codeUnit >= 0xD800 && codeUnit <= 0xDBFF &&
+        string.charCodeAt(i + 1) >= 0xDC00 && string.charCodeAt(i + 1) <= 0xDFFF) {
+      // valid surrogate pair, write both code units
+      view.setUint16(start + 2 * i, codeUnit, true);
+      i++;
+      codeUnit = string.charCodeAt(i);
+    } else if (codeUnit >= 0xD800 && codeUnit <= 0xDFFF) {
+      // unpaired surrogate
+      codeUnit = 0xFFFD;
+    }
+    view.setUint16(start + 2 * i, codeUnit, true);
+  }
+  return string.length * 2;
+}
+```
+
 ## FAQ
 
 ### What about WTF-16 user strings?
 
 A more appropriate proposal already exists: [Reference-Typed Strings](https://github.com/WebAssembly/stringref). Notably it does not work with linear memory to facilitate zero-copy handling of WTF-16 host strings.
+
+The UTF-16 memory builtins in this proposal deliberately do not preserve WTF-16: unpaired surrogates are always replaced with U+FFFD, so only well-formed UTF-16 is ever written or produced, consistent with the UTF-8 builtins. On encoding this substitution is exactly WebIDL `USVString` conversion / `String.prototype.toWellFormed()`, and on decoding it follows the WHATWG `utf-16le` decoder. For lossless WTF-16 copying between JS strings and GC arrays, js-string-builtins already provides [`"wasm:js-string" "fromCharCodeArray"` and `"wasm:js-string" "intoCharCodeArray"`](https://github.com/WebAssembly/js-string-builtins/blob/main/proposals/js-string-builtins/Overview.md#function-builtins); lossless WTF-16 memory variants could be added as a follow-up if a round-tripping use case is presented.
+
+### Why is there no `measureStringAsUTF16`?
+
+UTF-16 encoding with surrogate replacement is size-preserving (U+FFFD is a single code unit), so the encoded size in code units is exactly the string length, already available via [`"wasm:js-string" "length"`](https://github.com/WebAssembly/js-string-builtins/blob/main/proposals/js-string-builtins/Overview.md#wasmjs-string-length).
 
 ### How is an `externref` for `WebAssembly.Memory` retrieved?
 
