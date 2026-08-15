@@ -211,25 +211,25 @@ func decodeStringFromUTF16Memory(
   end: i64
 ) -> (ref extern)
 {
-  start >>>= 0;
-  end >>>= 0;
+  start = BigInt.asUintN(64, start);
+  end = BigInt.asUintN(64, end);
 
   if (!(memory instanceof WebAssembly.Memory))
     trap();
 
   if (start > end ||
-      end > memory.buffer.length)
+      end > memory.buffer.byteLength)
     trap();
 
-  if (start & 1 || end & 1)
+  if (start & 1n || end & 1n)
     trap();
 
   let decoder = new TextDecoder("utf-16le", {
     fatal: false,
     ignoreBOM: false,
   });
-  let bytesLength = end - start;
-  let view = new Uint8Array(memory, start, bytesLength);
+  let bytesLength = Number(end - start);
+  let view = new Uint8Array(memory.buffer, Number(start), bytesLength);
 
   return decoder.decode(view);
 }
@@ -260,8 +260,8 @@ func encodeStringIntoUTF16Memory(
   end: i64
 ) -> i64
 {
-  start >>>= 0;
-  end >>>= 0;
+  start = BigInt.asUintN(64, start);
+  end = BigInt.asUintN(64, end);
 
   if (!(memory instanceof WebAssembly.Memory))
     trap();
@@ -270,31 +270,32 @@ func encodeStringIntoUTF16Memory(
     trap();
 
   if (start > end ||
-      end > memory.buffer.length)
+      end > memory.buffer.byteLength)
     trap();
 
-  if (start & 1 || end & 1)
+  if (start & 1n || end & 1n)
     trap();
 
   if (string.length * 2 > end - start)
     trap();
 
   let view = new DataView(memory.buffer);
+  let offset = Number(start);
   for (let i = 0; i < string.length; i++) {
     let codeUnit = string.charCodeAt(i);
     if (codeUnit >= 0xD800 && codeUnit <= 0xDBFF &&
         string.charCodeAt(i + 1) >= 0xDC00 && string.charCodeAt(i + 1) <= 0xDFFF) {
       // valid surrogate pair, write both code units
-      view.setUint16(start + 2 * i, codeUnit, true);
+      view.setUint16(offset + 2 * i, codeUnit, true);
       i++;
       codeUnit = string.charCodeAt(i);
     } else if (codeUnit >= 0xD800 && codeUnit <= 0xDFFF) {
       // unpaired surrogate
       codeUnit = 0xFFFD;
     }
-    view.setUint16(start + 2 * i, codeUnit, true);
+    view.setUint16(offset + 2 * i, codeUnit, true);
   }
-  return string.length * 2;
+  return BigInt(string.length * 2);
 }
 ```
 
